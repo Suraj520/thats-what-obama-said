@@ -1,77 +1,69 @@
-import math
-import time
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
-from utils import *
 from torch.autograd import Variable
+from utils import *
 from model import *
-
-cuda = False
-if torch.cuda.is_available:
-    cuda = True
-
-style_file = "input/obama3sec.wav"
-content_file = "input/person3sec.wav"
-
-a_content, sr = wav2spectrum(content_file)
-a_style, sr = wav2spectrum(style_file)
+import time
+import math
+cuda = True if torch.cuda.is_available() else False
 
 
-if a_constant.shape[1]>a_style.shape[1]:
-    max_samples = a_constant.shape[1]
-    a_style = np.append(a_style, np.zeros((a_style.shape[0], (max_samples - a_style.shape[1]))), 1)
-else:
-    max_samples = a_style.shape[1]
-    a_content = np.append(a_content, np.zeros((a_content.shape[0], (max_samples - a_content.shape[1]))), 1)
+basepath = "input/"
 
+CONTENT_FILENAME = basepath + "boy18.wav"
+STYLE_FILENAME = basepath + "girl52.wav"
 
-print("Number of samples: ",max_samples)
-print("Number of channels: ",N_CHANNELS)
-
+a_content, sr = wav2spectrum(CONTENT_FILENAME)
+a_style, sr = wav2spectrum(STYLE_FILENAME)
 
 a_content_torch = torch.from_numpy(a_content)[None, None, :, :]
 if cuda:
     a_content_torch = a_content_torch.cuda()
-
-
+print(a_content_torch.shape)
 a_style_torch = torch.from_numpy(a_style)[None, None, :, :]
 if cuda:
     a_style_torch = a_style_torch.cuda()
-
-
-
-
-a_S_var = Variable(a_style_torch, requires_grad=False).float().cuda()
-a_C_var = Variable(a_content_torch, requires_grad=False).float().cuda()
+print(a_style_torch.shape)
 
 model = RandomCNN()
 model.eval()
 
-model = model.cuda()
+a_C_var = Variable(a_content_torch, requires_grad=False).float()
+a_S_var = Variable(a_style_torch, requires_grad=False).float()
+if cuda:
+    model = model.cuda()
+    a_C_var = a_C_var.cuda()
+    a_S_var = a_S_var.cuda()
 
-a_S = model(a_S_var)
 a_C = model(a_C_var)
+a_S = model(a_S_var)
 
 
 # Optimizer
-a_G_var = Variable(torch.randn(a_content_torch.shape) * 1e-3, requires_grad=True)
 learning_rate = 0.002
-optimizer = torch.optim.Adadelta([a_G_var])
-print('Done with optimizer')
-
+a_G_var = Variable(torch.randn(a_content_torch.shape).cuda() * 1e-3, requires_grad=True)
+optimizer = torch.optim.Adam([a_G_var])
 
 # coefficient of content and style
 style_param = 1
 content_param = 1e2
 
-num_epochs = 80000
+num_epochs = 20000
 print_every = 1000
 plot_every = 1000
 
 # Keep track of losses for plotting
 current_loss = 0
 all_losses = []
+
+
+def timeSince(since):
+    now = time.time()
+    s = now - since
+    m = math.floor(s / 60)
+    s -= m * 60
+    return '%dm %ds' % (m, s)
 
 
 start = time.time()
@@ -85,8 +77,8 @@ for epoch in range(1, num_epochs + 1):
     loss = content_loss + style_loss
     loss.backward()
     optimizer.step()
-    print("Epoch: "+epoch+" Loss: "+loss)
 
+    # print
     if epoch % print_every == 0:
         print("{} {}% {} content_loss:{:4f} style_loss:{:4f} total_loss:{:4f}".format(epoch,
                                                                                       epoch / num_epochs * 100,
@@ -95,13 +87,14 @@ for epoch in range(1, num_epochs + 1):
                                                                                       style_loss.item(), loss.item()))
         current_loss += loss.item()
 
+    # Add current loss avg to list of losses
     if epoch % plot_every == 0:
         all_losses.append(current_loss / plot_every)
         current_loss = 0
 
 
 gen_spectrum = a_G_var.cpu().data.numpy().squeeze()
-gen_audio_C = "generated_audio.wav"
+gen_audio_C = "boy18_to_girl52.wav"
 spectrum2wav(gen_spectrum, sr, gen_audio_C)
 
 plt.figure()
